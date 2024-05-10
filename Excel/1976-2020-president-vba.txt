@@ -1,0 +1,414 @@
+' Cleans data in the 1976-2020-president worksheet
+Sub Cleaning()
+    Dim ws As Worksheet
+    Set ws = Worksheets("1976-2020-president")
+
+    Dim lastRow As Long
+    lastRow = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+
+    ws.Cells(1, "K").Value = "CandidateVotesState"
+    ws.Cells(1, "L").Value = "TotalVotesState"
+
+    Dim i As Long
+    For i = 2 To lastRow
+        If ws.Cells(i, "J").Value = True Then
+            If IsEmpty(ws.Cells(i, "H").Value) Then ws.Cells(i, "H").Value = "Write-In Candidate"
+            If IsEmpty(ws.Cells(i, "I").Value) Then ws.Cells(i, "I").Value = "Write-In Candidate"
+            If IsEmpty(ws.Cells(i, "O").Value) Then ws.Cells(i, "O").Value = "Write-In Candidate"
+        Else
+            If IsEmpty(ws.Cells(i, "H").Value) Then ws.Cells(i, "H").Value = "Unknown"
+            If IsEmpty(ws.Cells(i, "I").Value) Then ws.Cells(i, "I").Value = "Unknown"
+            If IsEmpty(ws.Cells(i, "O").Value) Then ws.Cells(i, "O").Value = "Unknown"
+        End If
+    Next i
+
+    Dim partyDetailed As Object, partySimplified As Object
+    Set partyDetailed = CreateObject("Scripting.Dictionary")
+    Set partySimplified = CreateObject("Scripting.Dictionary")
+
+    Dim candidateName As String, candidateParty As String, candidateSimplified As String
+    Dim partyFreq As Object, simplifiedFreq As Object
+
+    For i = 2 To lastRow
+        candidateName = ws.Cells(i, "H").Value
+        candidateParty = ws.Cells(i, "I").Value
+        candidateSimplified = ws.Cells(i, "O").Value
+
+        If Not partyDetailed.Exists(candidateName) Then
+            Set partyFreq = CreateObject("Scripting.Dictionary")
+            partyFreq(candidateParty) = 1
+            partyDetailed.Add candidateName, partyFreq
+        Else
+            Set partyFreq = partyDetailed(candidateName)
+            If partyFreq.Exists(candidateParty) Then
+                partyFreq(candidateParty) = partyFreq(candidateParty) + 1
+            Else
+                partyFreq(candidateParty) = 1
+            End If
+        End If
+
+        If Not partySimplified.Exists(candidateName) Then
+            Set simplifiedFreq = CreateObject("Scripting.Dictionary")
+            simplifiedFreq(candidateSimplified) = 1
+            partySimplified.Add candidateName, simplifiedFreq
+        Else
+            Set simplifiedFreq = partySimplified(candidateName)
+            If simplifiedFreq.Exists(candidateSimplified) Then
+                simplifiedFreq(candidateSimplified) = simplifiedFreq(candidateSimplified) + 1
+            Else
+                simplifiedFreq(candidateSimplified) = 1
+            End If
+        End If
+    Next i
+
+    For i = 2 To lastRow
+        candidateName = ws.Cells(i, "H").Value
+        candidateParty = ws.Cells(i, "I").Value
+        candidateSimplified = ws.Cells(i, "O").Value
+
+        Set partyFreq = partyDetailed(candidateName)
+        Dim maxFreq As Long: maxFreq = 0
+        Dim mostFreqParty As String: mostFreqParty = ""
+        Dim p As Variant
+        For Each p In partyFreq.Keys
+            If partyFreq(p) > maxFreq Then
+                maxFreq = partyFreq(p)
+                mostFreqParty = p
+            End If
+        Next p
+        If candidateParty <> mostFreqParty Then
+            ws.Cells(i, "I").Value = mostFreqParty
+        End If
+
+        Set simplifiedFreq = partySimplified(candidateName)
+        maxFreq = 0
+        Dim mostFreqSimplified As String: mostFreqSimplified = ""
+        For Each p In simplifiedFreq.Keys
+            If simplifiedFreq(p) > maxFreq Then
+                maxFreq = simplifiedFreq(p)
+                mostFreqSimplified = p
+            End If
+        Next p
+        If candidateSimplified <> mostFreqSimplified Then
+            ws.Cells(i, "O").Value = mostFreqSimplified
+        End If
+    Next i
+
+    Dim candidateDict As Object
+    Set candidateDict = CreateObject("Scripting.Dictionary")
+
+    Dim key As String
+    Dim toDelete As Range
+
+    For i = 2 To lastRow
+        key = ws.Cells(i, "A").Value & "|" & ws.Cells(i, "B").Value & "|" & ws.Cells(i, "H").Value
+        Dim currentVotes As Long
+        currentVotes = ws.Cells(i, "K").Value
+
+        If candidateDict.Exists(key) Then
+            Dim storedVotes As Long
+            storedVotes = ws.Cells(candidateDict(key), "K").Value
+
+            Dim rowToDelete As Long
+            If currentVotes < storedVotes Then
+                rowToDelete = i
+            Else
+                rowToDelete = candidateDict(key)
+            End If
+
+            ws.Rows(rowToDelete).Delete
+
+            If rowToDelete < i Then
+                i = i - 1
+                lastRow = lastRow - 1
+            End If
+        Else
+            candidateDict(key) = i
+        End If
+    Next i
+
+    ws.Columns("M:N").Delete
+    ws.Columns("J").Delete
+    ws.Columns("D:G").Delete
+
+    If Not toDelete Is Nothing Then toDelete.Delete
+End Sub
+
+' Assigns an in-state rank based on candidate votes in that state
+Sub InStateRank()
+    Dim ws As Worksheet
+    Set ws = Worksheets("1976-2020-president")
+    
+    Dim lastRow As Long, i As Long, StartRow As Long, EndRow As Long
+    Dim CurrentState As String, CurrentYear As Integer
+    
+    lastRow = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+    ws.Cells(1, "I").Value = "InStateRank"
+    
+    StartRow = 2
+    For i = StartRow To lastRow + 1
+        If ws.Cells(i, "B").Value <> CurrentState Or ws.Cells(i, "A").Value <> CurrentYear Or i = lastRow + 1 Then
+            If i > StartRow Then
+                EndRow = i - 1
+                Dim j As Long
+                For j = StartRow To EndRow
+                    ws.Cells(j, "I").Value = Application.WorksheetFunction.Rank(ws.Cells(j, "F").Value, ws.Range(ws.Cells(StartRow, "F"), ws.Cells(EndRow, "F")), 0)
+                Next j
+            End If
+            StartRow = i
+            CurrentState = ws.Cells(i, "B").Value
+            CurrentYear = ws.Cells(i, "A").Value
+        End If
+    Next i
+End Sub
+
+' Calculates and assigns votes per candidate per year
+Sub CandidateVotesYear()
+    Dim ws As Worksheet
+    Set ws = Worksheets("1976-2020-president")
+    
+    Dim lastRow As Long, i As Long
+    Dim CandidateYearSum As Object
+    Set CandidateYearSum = CreateObject("Scripting.Dictionary")
+    
+    lastRow = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+    ws.Cells(1, "J").Value = "CandidateVotesYear"
+    
+    For i = 2 To lastRow
+        Dim key As String
+        key = ws.Cells(i, "A").Value & "_" & ws.Cells(i, "D").Value
+        
+        If CandidateYearSum.Exists(key) Then
+            CandidateYearSum(key) = CandidateYearSum(key) + ws.Cells(i, "F").Value
+        Else
+            CandidateYearSum.Add key, ws.Cells(i, "F").Value
+        End If
+    Next i
+    
+    For i = 2 To lastRow
+        Dim YearCandidateKey As String
+        YearCandidateKey = ws.Cells(i, "A").Value & "_" & ws.Cells(i, "D").Value
+        If CandidateYearSum.Exists(YearCandidateKey) Then
+            ws.Cells(i, "J").Value = CandidateYearSum(YearCandidateKey)
+        End If
+    Next i
+End Sub
+
+' Calculates and assigns total votes per year
+Sub TotalVotesYear()
+    Dim ws As Worksheet
+    Set ws = Worksheets("1976-2020-president")
+    
+    Dim lastRow As Long, i As Long, StartRow As Long, EndRow As Long, CurrentYear As Integer
+    lastRow = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+    ws.Cells(1, "K").Value = "TotalVotesYear"
+    
+    StartRow = 2
+    CurrentYear = ws.Cells(StartRow, "A").Value
+    For i = StartRow To lastRow + 1
+        If ws.Cells(i, "A").Value <> CurrentYear Or i = lastRow + 1 Then
+            EndRow = i - 1
+            Dim YearSum As Double
+            YearSum = Application.WorksheetFunction.Sum(ws.Range(ws.Cells(StartRow, "F"), ws.Cells(EndRow, "F")))
+            ws.Range(ws.Cells(StartRow, "K"), ws.Cells(EndRow, "K")).Value = YearSum
+            
+            StartRow = i
+            CurrentYear = ws.Cells(i, "A").Value
+        End If
+    Next i
+End Sub
+
+' Calculates the percentage of votes a candidate has per state
+Sub CalculatePercentages()
+    Dim ws As Worksheet
+    Set ws = Worksheets("1976-2020-president")
+
+    Dim lastRow As Long
+    lastRow = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+    
+    ws.Cells(1, "L").Value = "StatePercentage"
+
+    Dim i As Long
+    For i = 2 To lastRow
+        If ws.Cells(i, "G").Value <> 0 Then
+            ws.Cells(i, "L").Value = ws.Cells(i, "F").Value / ws.Cells(i, "G").Value
+        Else
+            ws.Cells(i, "L").ClearContents
+        End If
+    Next i
+End Sub
+
+' Calculates the margin at which a candidate wins a state
+Sub CalculateWinMargin()
+    Dim ws As Worksheet
+    Set ws = Worksheets("1976-2020-president")
+
+    Dim lastRow As Long
+    lastRow = ws.Cells(ws.Rows.Count, "A").End(xlUp).Row
+
+    ws.Cells(1, "M").Value = "WinMargin"
+
+    Dim dataRange As Variant
+    dataRange = ws.Range("A2:L" & lastRow).Value
+
+    Dim results() As Variant
+    ReDim results(1 To UBound(dataRange, 1), 1 To 1)
+
+    Dim yearStateDict As Object
+    Set yearStateDict = CreateObject("Scripting.Dictionary")
+
+    Dim i As Long
+    Dim yearState As String
+    Dim place As Integer
+    Dim percentage As Double
+
+    For i = 1 To UBound(dataRange, 1)
+        yearState = dataRange(i, 1) & "_" & dataRange(i, 2)
+        place = dataRange(i, 9)
+        percentage = dataRange(i, 12)
+
+        If Not yearStateDict.Exists(yearState) Then
+            Set yearStateDict(yearState) = CreateObject("Scripting.Dictionary")
+        End If
+
+        yearStateDict(yearState)(place) = percentage
+    Next i
+
+    For i = 1 To UBound(dataRange, 1)
+        yearState = dataRange(i, 1) & "_" & dataRange(i, 2)
+        If yearStateDict(yearState).Exists(1) And yearStateDict(yearState).Exists(2) Then
+            If dataRange(i, 9) = 1 Then
+                results(i, 1) = yearStateDict(yearState)(1) - yearStateDict(yearState)(2)
+            End If
+        End If
+    Next i
+
+    ws.Range("M2:M" & lastRow).Value = results
+
+    Set yearStateDict = Nothing ' Clean up
+End Sub
+
+' Transfers data from the electoral-college to the 1976-2020-president worksheet
+Sub ElectoralCollege()
+    Dim wsSource As Worksheet, wsTarget As Worksheet
+    Set wsSource = Worksheets("electoral-college")
+    Set wsTarget = Worksheets("1976-2020-president")
+    
+    Dim lastRowSource As Long, lastRowTarget As Long, i As Long, j As Long
+    lastRowSource = wsSource.Cells(wsSource.Rows.Count, "A").End(xlUp).Row
+    lastRowTarget = wsTarget.Cells(wsTarget.Rows.Count, "A").End(xlUp).Row
+    wsTarget.Cells(1, "N").Value = "ElectoralVotes"
+    wsTarget.Cells(1, "O").Value = "Winner"
+    
+    For i = lastRowSource To 2 Step -1
+        If wsSource.Cells(i, "A").Value < 1976 Or _
+            (wsSource.Cells(i, "C").Value <> "Democratic" And wsSource.Cells(i, "C").Value <> "Republican") Then
+            wsSource.Rows(i).Delete
+        Else
+            If wsSource.Cells(i, "C").Value = "Democratic" Then
+                wsSource.Cells(i, "C").Value = "Democrat"
+            End If
+        End If
+    Next i
+    
+    Dim maxVotes As Long, maxRow As Long
+    lastRowSource = wsSource.Cells(wsSource.Rows.Count, "A").End(xlUp).Row
+    For i = 2 To lastRowSource Step 2
+        maxVotes = 0
+        maxRow = i
+        For j = 0 To 1
+            If wsSource.Cells(i + j, "D").Value > maxVotes Then
+                maxVotes = wsSource.Cells(i + j, "D").Value
+                maxRow = i + j
+            End If
+        Next j
+        
+        For j = 0 To 1
+            wsSource.Cells(i + j, "G").Value = (i + j = maxRow)
+        Next j
+    Next i
+    
+    lastRowSource = wsSource.Cells(wsSource.Rows.Count, "A").End(xlUp).Row
+    For i = 2 To lastRowSource
+        For j = 2 To lastRowTarget
+            If wsSource.Cells(i, "A").Value = wsTarget.Cells(j, "A").Value And _
+                UCase(wsSource.Cells(i, "C").Value) = UCase(wsTarget.Cells(j, "E").Value) And _
+                wsTarget.Cells(j, "I").Value < 3 Then
+                wsTarget.Cells(j, "N").Value = wsSource.Cells(i, "D").Value
+                wsTarget.Cells(j, "O").Value = wsSource.Cells(i, "G").Value
+            End If
+        Next j
+    Next i
+
+End Sub
+
+' Transfers data from the turnout-statistics to the 1976-2020-president worksheet
+Sub VoterPopulation()
+    Dim wsSource As Worksheet, wsTarget As Worksheet
+    Set wsSource = Worksheets("turnout-statistics")
+    Set wsTarget = Worksheets("1976-2020-president")
+    
+    Dim lastRowSource As Long, lastRowTarget As Long, i As Long, j As Long
+    Dim yearSource As Long, yearTarget As Long
+    lastRowSource = wsSource.Cells(wsSource.Rows.Count, "A").End(xlUp).Row
+    lastRowTarget = wsTarget.Cells(wsTarget.Rows.Count, "A").End(xlUp).Row
+    wsTarget.Cells(1, "P").Value = "VoterPopulation"
+
+    For i = 2 To lastRowTarget
+        yearTarget = wsTarget.Cells(i, "A").Value
+        For j = 3 To lastRowSource
+            yearSource = wsSource.Cells(j, "A").Value
+            If yearSource = yearTarget Then
+                If Not IsEmpty(wsSource.Cells(j, "C").Value) Then
+                    wsTarget.Cells(i, "P").Value = wsSource.Cells(j, "C").Value
+                Else
+                    wsTarget.Cells(i, "P").Value = wsSource.Cells(j, "B").Value
+                End If
+            End If
+        Next j
+    Next i
+    
+    Application.DisplayAlerts = False
+    On Error Resume Next
+    On Error GoTo 0
+    Application.DisplayAlerts = True
+End Sub
+
+' Fixing a name that is in the wrong order
+Sub FixName()
+    Dim ws As Worksheet
+    Set ws = ThisWorkbook.Worksheets("1976-2020-president")
+
+    Dim lastRow As Long
+    lastRow = ws.Cells(ws.Rows.Count, "D").End(xlUp).Row
+
+    Dim i As Long
+    Dim cellValue As String
+
+    For i = 2 To lastRow
+        cellValue = ws.Cells(i, "D").Value
+        If cellValue Like "*MITT, ROMNEY*" Then
+            ws.Cells(i, "D").Value = Replace(cellValue, "MITT, ROMNEY", "ROMNEY, MITT")
+        End If
+    Next i
+End Sub
+
+' Executes all the procedures in sequence
+Sub RunEverything()
+
+    Application.ScreenUpdating = False
+    Application.Calculation = xlCalculationManual
+    
+    Call Cleaning
+    Call InStateRank
+    Call CandidateVotesYear
+    Call TotalVotesYear
+    Call CalculatePercentages
+    Call CalculateWinMargin
+    Call ElectoralCollege
+    Call VoterPopulation
+    Call FixName
+    
+    Application.Calculation = xlCalculationAutomatic
+    Application.ScreenUpdating = True
+End Sub
